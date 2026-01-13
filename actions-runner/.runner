@@ -1,0 +1,11 @@
+﻿{
+  "agentId": 2,
+  "agentName": "LAPTOP_MATHIEU",
+  "poolId": 1,
+  "poolName": "Default",
+  "serverUrl": "https://pipelinesghubeus12.actions.githubusercontent.com/Fe8f99ghQ8Dhl0P2tpnpQ7QF9HHKtn3ztxw9KirsWceCZ6O5nh/",
+  "gitHubUrl": "https://github.com/matBonnin2/CloudNativeApplicationCurse",
+  "workFolder": "_work",
+  "useV2Flow": true,
+  "serverUrlV2": "https://broker.actions.githubusercontent.com/"
+}
