@@ -1,0 +1,130 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches:
+      - develop
+  push:
+    branches:
+      - feature/**
+
+jobs:
+  lint:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Lint frontend
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Lint backend
+        run: |
+          cd backend
+          npm run lint
+
+  build:
+    runs-on: self-hosted
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Build backend
+        run: |
+          cd backend
+          npm run build
+
+  tests:
+    runs-on: self-hosted
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          npm test
+
+  sonarcloud:
+    runs-on: self-hosted
+    needs: tests
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Install SonarScanner
+        run: npm install -g sonar-scanner
+
+      - name: Run SonarCloud scan (backend)
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          cd backend
+          sonar-scanner ^
+            -Dsonar.projectKey=LargeGaultier_CloudNativeApplicationCurse ^
+            -Dsonar.organization=largegaultier ^
+            -Dsonar.sources=src ^
+            -Dsonar.host.url=https://sonarcloud.io ^
+            -Dsonar.login=%SONAR_TOKEN% ^
+            -Dsonar.qualitygate.wait=true
