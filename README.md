@@ -231,6 +231,77 @@ docker exec -it gym_db psql -U postgres -d gym_management
 4. Add tests if applicable
 5. Submit a pull request
 
+## 🔀 Workflow Git
+
+- Branches principales : `main`, `develop`
+- Branches de feature : `feature/<nom>`
+- Pull Request obligatoire vers `develop`
+- Aucun commit direct sur `main` / `develop`
+
+## 🧱 Convention de commits
+
+```
+feat: ajout authentification
+fix: correction connexion Postgres
+chore: mise à jour dépendances
+
+```
+
+## 🪝 Hooks Husky v9
+
+- `pre-commit` → lint frontend + backend
+- `commit-msg` → commitlint
+
+---
+
+## 🚀 Étape 8 – Push & Pull Request
+
+```bash
+git push -u origin feature/init-husky
+
+```
+
+### Modèle de PR
+
+```markdown
+## 🏷️ Titre
+feat: configuration Husky v9 + Commitlint
+
+## 🎯 Contexte
+Mise en place des hooks Git pour garantir la qualité du code.
+
+## 🔧 Changements
+- Husky v9 initialisé
+- Hook pre-commit (lint)
+- Hook commit-msg (commitlint)
+
+## 🧪 Tests
+- Commit valide accepté
+- Commit invalide refusé
+
+## 📋 Checklist
+- [x] Hooks fonctionnels
+- [x] README à jour
+
+```
+
+---
+
+## ✅ Résultat attendu (Windows)
+
+✔ Husky v9 fonctionnel
+
+✔ Aucun `chmod`
+
+✔ Aucun `touch`
+
+✔ Commits normés obligatoires
+
+✔ Lint bloquant avant commit
+
+✔ Workflow Git professionnel
+
+
 ## License
 
 This project is licensed under the MIT License.
