@@ -9,6 +9,9 @@ on:
       - feature/**
 
 jobs:
+  # =========================
+  # LINT (on garde)
+  # =========================
   lint:
     runs-on: self-hosted
     steps:
@@ -40,63 +43,101 @@ jobs:
           cd backend
           npm run lint
 
-  build:
+  # =========================
+  # DOCKER BUILD (TP 2.1)
+  # =========================
+  docker-build:
+    name: Docker build images
     runs-on: self-hosted
     needs: lint
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Docker version
+        run: docker version
 
-      - name: Install frontend dependencies
+      - name: Build backend Docker image
         run: |
-          cd frontend
-          npm ci
+          docker build \
+            -t backend:ci-build \
+            ./backend
 
-      - name: Build frontend
+      - name: Build frontend Docker image
         run: |
-          cd frontend
-          npm run build
+          docker build \
+            -t frontend:ci-build \
+            ./frontend
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+  # =========================
+  # BUILD NODE (OBSOLÈTE)
+  # Le build est maintenant fait
+  # dans les Dockerfiles multi-stage
+  # =========================
+  # build:
+  #   runs-on: self-hosted
+  #   needs: lint
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #
+  #     - name: Install frontend dependencies
+  #       run: |
+  #         cd frontend
+  #         npm ci
+  #
+  #     - name: Build frontend
+  #       run: |
+  #         cd frontend
+  #         npm run build
+  #
+  #     - name: Install backend dependencies
+  #       run: |
+  #         cd backend
+  #         npm ci
+  #
+  #     - name: Build backend
+  #       run: |
+  #         cd backend
+  #         npm run build
 
-      - name: Build backend
-        run: |
-          cd backend
-          npm run build
+  # =========================
+  # TESTS NODE (OBSOLÈTE)
+  # Remplacés par des smoke tests
+  # Docker (TP 2.2)
+  # =========================
+  # tests:
+  #   runs-on: self-hosted
+  #   needs: build
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #
+  #     - name: Install backend dependencies
+  #       run: |
+  #         cd backend
+  #         npm ci
+  #
+  #     - name: Run backend tests
+  #       run: |
+  #         cd backend
+  #         npm test
 
-  tests:
-    runs-on: self-hosted
-    needs: build
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
-
-      - name: Run backend tests
-        run: |
-          cd backend
-          npm test
-
+  # =========================
+  # SONARCLOUD (BONUS QUALITÉ)
+  # =========================
   sonarcloud:
     runs-on: self-hosted
-    needs: tests
+    needs: docker-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -128,3 +169,36 @@ jobs:
             -Dsonar.host.url=https://sonarcloud.io ^
             -Dsonar.login=%SONAR_TOKEN% ^
             -Dsonar.qualitygate.wait=true
+
+  smoke-tests:
+    name: Docker smoke tests
+    runs-on: self-hosted
+    needs: docker-build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start stack (CI)
+        run: docker compose -f docker-compose.ci.yaml up -d
+
+      - name: Wait for API to be ready
+        shell: bash
+        run: |
+          set -e
+          echo "Waiting for API..."
+          for i in {1..30}; do
+            if curl -fsS http://localhost/api/health >/dev/null; then
+              echo "API is UP"
+              break
+            fi
+            sleep 1
+          done
+
+          # Tests obligatoires du TP
+          curl -fsS http://localhost/api/health
+          curl -fsS http://localhost/api/whoami
+
+      - name: Stop stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yaml down -v
