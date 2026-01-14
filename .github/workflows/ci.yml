@@ -230,11 +230,9 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Creation du fichier .env..."
-          @"
-POSTGRES_USER=app
-POSTGRES_PASSWORD=supersecret
-POSTGRES_DB=appdb
-"@ | Out-File -FilePath .env -Encoding utf8
+          "POSTGRES_USER=app" | Out-File -FilePath .env -Encoding utf8
+          "POSTGRES_PASSWORD=supersecret" | Out-File -FilePath .env -Encoding utf8 -Append
+          "POSTGRES_DB=appdb" | Out-File -FilePath .env -Encoding utf8 -Append
           Write-Host "Fichier .env cree."
 
       - name: Start application
