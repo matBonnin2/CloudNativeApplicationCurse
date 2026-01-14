@@ -54,9 +54,6 @@ services:
       # route /api -> backend
       - traefik.http.routers.api.rule=PathPrefix(`/api`)
       - traefik.http.routers.api.entrypoints=web
-      # si ton backend expose /health et /whoami SANS /api, il faut StripPrefix
-      - traefik.http.middlewares.api-strip.stripprefix.prefixes=/api
-      - traefik.http.routers.api.middlewares=api-strip
       - traefik.http.services.api.loadbalancer.server.port=3000
 
   postgres:
