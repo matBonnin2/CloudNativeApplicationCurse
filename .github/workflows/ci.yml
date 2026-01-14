@@ -6,9 +6,18 @@ on:
       - develop
   push:
     branches:
+      - main
+      - develop
       - feature/**
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  # =========================
+  # LINT (on garde)
+  # =========================
   lint:
     runs-on: self-hosted
     steps:
@@ -40,6 +49,32 @@ jobs:
           cd backend
           npm run lint
 
+  # =========================
+  # DOCKER BUILD (TP 2.1)
+  # =========================
+  docker-build:
+    name: Docker build images
+    runs-on: self-hosted
+    needs: lint
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Docker version
+        run: docker version
+
+      - name: Build backend Docker image
+        run: docker build -t backend:ci-build ./backend
+
+      - name: Build frontend Docker image
+        run: docker build -t frontend:ci-build ./frontend
+
+  # =========================
+  # BUILD NODE (OBSOLETE)
+  # Le build est maintenant fait
+  # dans les Dockerfiles multi-stage
+  # =========================
   build:
     runs-on: self-hosted
     needs: lint
@@ -72,6 +107,11 @@ jobs:
           cd backend
           npm run build
 
+  # =========================
+  # TESTS NODE (OBSOLETE)
+  # Remplaces par des smoke tests
+  # Docker (TP 2.2)
+  # =========================
   tests:
     runs-on: self-hosted
     needs: build
@@ -81,8 +121,6 @@ jobs:
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install backend dependencies
         run: |
@@ -94,37 +132,104 @@ jobs:
           cd backend
           npm test
 
-  sonarcloud:
+  # =========================
+  # PUBLISH GHCR (TP 2.3)
+  # =========================
+  publish:
+    name: Publish images to GHCR
     runs-on: self-hosted
-    needs: tests
+    needs: docker-build
+    if: github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install backend dependencies
+      - name: Login to GHCR
         run: |
-          cd backend
-          npm ci
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Install SonarScanner
-        run: npm install -g sonar-scanner
-
-      - name: Run SonarCloud scan (backend)
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Set image names
+        shell: pwsh
         run: |
-          cd backend
-          sonar-scanner ^
-            -Dsonar.projectKey=LargeGaultier_CloudNativeApplicationCurse ^
-            -Dsonar.organization=largegaultier ^
-            -Dsonar.sources=src ^
-            -Dsonar.host.url=https://sonarcloud.io ^
-            -Dsonar.login=%SONAR_TOKEN% ^
-            -Dsonar.qualitygate.wait=true
+          $repo = "${{ github.event.repository.name }}".ToLower()
+          $owner = "${{ github.repository_owner }}".ToLower()
+          "IMAGE_BACKEND=ghcr.io/$owner/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_FRONTEND=ghcr.io/$owner/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build and tag images
+        shell: pwsh
+        run: |
+          docker build -t "$env:IMAGE_BACKEND`:${{ github.sha }}" ./backend
+          docker build -t "$env:IMAGE_FRONTEND`:${{ github.sha }}" ./frontend
+          if ("${{ github.ref_name }}" -eq "main") {
+            docker tag "$env:IMAGE_BACKEND`:${{ github.sha }}" "$env:IMAGE_BACKEND`:latest"
+            docker tag "$env:IMAGE_FRONTEND`:${{ github.sha }}" "$env:IMAGE_FRONTEND`:latest"
+          }
+
+      - name: Push images
+        shell: pwsh
+        run: |
+          docker push "$env:IMAGE_BACKEND`:${{ github.sha }}"
+          docker push "$env:IMAGE_FRONTEND`:${{ github.sha }}"
+          if ("${{ github.ref_name }}" -eq "main") {
+            docker push "$env:IMAGE_BACKEND`:latest"
+            docker push "$env:IMAGE_FRONTEND`:latest"
+          }
+
+  # =========================
+  # DEPLOY (TP4 - CD)
+  # Deploiement automatique local
+  # =========================
+  deploy:
+    name: Deploy to local environment
+    runs-on: self-hosted
+    needs: publish
+    if: github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR (for pulling images)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Set deployment variables
+        shell: pwsh
+        run: |
+          $repo = "${{ github.event.repository.name }}".ToLower()
+          $owner = "${{ github.repository_owner }}".ToLower()
+          "IMAGE_BACKEND=ghcr.io/$owner/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_FRONTEND=ghcr.io/$owner/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_TAG=${{ github.sha }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Stop existing containers
+        shell: pwsh
+        run: |
+          Write-Host "Arret des conteneurs existants..."
+          docker compose -f docker-compose.deploy.yaml down
+          Write-Host "Conteneurs arretes."
+
+      - name: Pull latest images from GHCR
+        shell: pwsh
+        run: |
+          Write-Host "Telechargement des images depuis GHCR..."
+          docker pull "$env:IMAGE_BACKEND`:$env:IMAGE_TAG"
+          docker pull "$env:IMAGE_FRONTEND`:$env:IMAGE_TAG"
+          Write-Host "Images telechargees."
+
+      - name: Start application
+        shell: pwsh
+        run: |
+          Write-Host "Demarrage de l'application..."
+          docker compose -f docker-compose.deploy.yaml up -d
+          Write-Host "Application demarree."
+
+      - name: Verify deployment
+        shell: pwsh
+        run: |
+          Write-Host "Verification du deploiement..."
+          Start-Sleep -Seconds 10
+          docker compose -f docker-compose.deploy.yaml ps
+          Write-Host "Deploiement termine avec succes!"

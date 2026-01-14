@@ -302,6 +302,83 @@ Mise en place des hooks Git pour garantir la qualité du code.
 ✔ Workflow Git professionnel
 
 
+---
+
+## Deploiement local automatise
+
+### Fonctionnement du stage de deploiement
+
+Le pipeline CI/CD inclut un stage **deploy** qui est lance automatiquement apres la publication des images Docker sur GHCR (GitHub Container Registry).
+
+#### Workflow complet
+
+```
+lint -> build -> docker-build -> publish -> deploy
+```
+
+1. **lint** : Verification du code (ESLint)
+2. **build** : Compilation du frontend et backend
+3. **docker-build** : Construction des images Docker
+4. **publish** : Push des images vers GHCR
+5. **deploy** : Deploiement automatique sur le runner local
+
+#### Ce que fait le stage deploy
+
+1. Arrete les conteneurs en cours (`docker compose down`) - **sans supprimer les volumes**
+2. Telecharge les nouvelles images depuis GHCR (`docker pull`)
+3. Redemarre l'environnement complet (`docker compose up -d`)
+4. Verifie que les conteneurs sont bien lances
+
+### Prerequis pour le deploiement
+
+- **Runner local actif** : Le runner GitHub Actions self-hosted doit etre en cours d'execution
+- **Secrets Docker configures** : `GITHUB_TOKEN` doit avoir les permissions `packages: write`
+- **Acces au registre distant** : Le runner doit pouvoir se connecter a GHCR
+
+### Branches concernees
+
+Le deploiement automatique s'execute **uniquement** sur les branches suivantes :
+- `main` : Deploiement de production
+- `develop` : Deploiement de developpement
+
+Les branches `feature/**` declenchent le pipeline CI mais **pas** le deploiement automatique.
+
+### Idempotence
+
+Le deploiement est concu pour etre **idempotent** :
+- Il peut etre execute plusieurs fois sans effet de bord
+- Les volumes PostgreSQL sont preserves (`pg_data`)
+- Aucune donnee n'est perdue entre les deploiements
+
+### Utilisation manuelle du script
+
+Pour un deploiement manuel (en dehors du CI), vous pouvez utiliser :
+
+```powershell
+# Depuis la racine du projet
+.\scripts\deploy.ps1 -ImageTag "<commit-sha>" -RepoOwner "matbonnin2" -RepoName "cloudnativeapplicationcurse"
+```
+
+### Architecture du deploiement
+
+```
++------------------+     +------------------+     +------------------+
+|  GitHub Actions  | --> |      GHCR        | --> |  Runner Local    |
+|  (CI Pipeline)   |     | (Image Registry) |     | (Docker Host)    |
++------------------+     +------------------+     +------------------+
+                                                          |
+                                                          v
+                                                  +------------------+
+                                                  | Docker Compose   |
+                                                  | - Traefik        |
+                                                  | - Frontend       |
+                                                  | - Backend        |
+                                                  | - PostgreSQL     |
+                                                  +------------------+
+```
+
+---
+
 ## License
 
 This project is licensed under the MIT License.
