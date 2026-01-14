@@ -226,6 +226,17 @@ jobs:
           docker pull "${env:IMAGE_FRONTEND}:${env:IMAGE_TAG}"
           Write-Host "Images telechargees."
 
+      - name: Create environment file
+        shell: powershell
+        run: |
+          Write-Host "Creation du fichier .env..."
+          @"
+POSTGRES_USER=app
+POSTGRES_PASSWORD=supersecret
+POSTGRES_DB=appdb
+"@ | Out-File -FilePath .env -Encoding utf8
+          Write-Host "Fichier .env cree."
+
       - name: Start application
         shell: powershell
         run: |
