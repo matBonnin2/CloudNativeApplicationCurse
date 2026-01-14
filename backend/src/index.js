@@ -60,7 +60,6 @@ app.use(
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 /* =========================
    ROUTES
 ========================= */
@@ -97,7 +96,7 @@ app.get('/whoami', whoamiHandler);
 app.get('/api/whoami', whoamiHandler);
 
 /* =========================
-   ERROR HANDLING
+   ERROR HANDLINGG
 ========================= */
 
 // Error handler
