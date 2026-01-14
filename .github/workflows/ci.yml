@@ -252,3 +252,102 @@ jobs:
             docker push "$env:IMAGE_BACKEND:latest"
             docker push "$env:IMAGE_FRONTEND:latest"
           }
+
+  # =========================
+  # DEPLOY BLUE/GREEN (TP5)
+  # Deploiement automatique avec
+  # strategie Blue/Green
+  # =========================
+  deploy-blue-green:
+    name: Deploy Blue/Green
+    runs-on: self-hosted
+    needs: publish
+    if: github.event_name == 'push' && github.ref_name == 'main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Set deployment variables
+        shell: pwsh
+        run: |
+          $repo = "${{ github.event.repository.name }}".ToLower()
+          $owner = "${{ github.repository_owner }}".ToLower()
+          "IMAGE_BACKEND=ghcr.io/$owner/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_FRONTEND=ghcr.io/$owner/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_TAG=${{ github.sha }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Determine active color
+        shell: pwsh
+        run: |
+          $activeColorFile = ".active_color"
+          if (Test-Path $activeColorFile) {
+            $currentColor = (Get-Content $activeColorFile -Raw).Trim()
+          } else {
+            $currentColor = "blue"
+            "blue" | Out-File -FilePath $activeColorFile -NoNewline -Encoding utf8
+          }
+          $targetColor = if ($currentColor -eq "blue") { "green" } else { "blue" }
+          Write-Host "Couleur active: $currentColor"
+          Write-Host "Couleur cible: $targetColor"
+          "CURRENT_COLOR=$currentColor" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TARGET_COLOR=$targetColor" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Create environment file
+        shell: pwsh
+        run: |
+          "POSTGRES_USER=app" | Out-File -FilePath .env -Encoding utf8
+          "POSTGRES_PASSWORD=supersecret" | Out-File -FilePath .env -Append
+          "POSTGRES_DB=appdb" | Out-File -FilePath .env -Append
+
+      - name: Pull new images
+        shell: pwsh
+        run: |
+          Write-Host "Telechargement des images..."
+          docker pull "$env:IMAGE_BACKEND`:$env:IMAGE_TAG"
+          docker pull "$env:IMAGE_FRONTEND`:$env:IMAGE_TAG"
+
+      - name: Start base infrastructure
+        shell: pwsh
+        run: |
+          Write-Host "Demarrage de l'infrastructure de base..."
+          $env:ACTIVE_COLOR = $env:CURRENT_COLOR
+          docker compose -f docker-compose.base.yml up -d postgres
+          Start-Sleep -Seconds 10
+
+      - name: Deploy to target color
+        shell: pwsh
+        run: |
+          Write-Host "Deploiement sur $env:TARGET_COLOR..."
+          $env:ACTIVE_COLOR = $env:CURRENT_COLOR
+          docker compose -f docker-compose.base.yml -f "docker-compose.$env:TARGET_COLOR.yml" up -d "backend-$env:TARGET_COLOR" "frontend-$env:TARGET_COLOR"
+          Start-Sleep -Seconds 15
+
+      - name: Switch traffic to new color
+        shell: pwsh
+        run: |
+          Write-Host "Bascule du trafic vers $env:TARGET_COLOR..."
+          $env:TARGET_COLOR | Out-File -FilePath .active_color -NoNewline -Encoding utf8
+          $env:ACTIVE_COLOR = $env:TARGET_COLOR
+          docker compose -f docker-compose.base.yml up -d nginx
+          Start-Sleep -Seconds 3
+          docker exec nginx-proxy nginx -s reload 2>$null
+          Write-Host "Trafic bascule vers $env:TARGET_COLOR"
+
+      - name: Verify deployment
+        shell: pwsh
+        run: |
+          Write-Host "Verification du deploiement..."
+          Start-Sleep -Seconds 5
+          $response = Invoke-WebRequest -Uri "http://localhost/nginx-health" -UseBasicParsing
+          Write-Host "Health check: $($response.Content)"
+          docker compose -f docker-compose.base.yml -f docker-compose.blue.yml -f docker-compose.green.yml ps
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Green
+          Write-Host "  DEPLOIEMENT BLUE/GREEN TERMINE" -ForegroundColor Green
+          Write-Host "  Couleur active: $env:TARGET_COLOR" -ForegroundColor Green
+          Write-Host "========================================" -ForegroundColor Green

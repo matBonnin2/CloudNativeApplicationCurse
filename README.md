@@ -302,6 +302,90 @@ Mise en place des hooks Git pour garantir la qualité du code.
 ✔ Workflow Git professionnel
 
 
+---
+
+## Deploiement Blue/Green (TP5)
+
+### Principe
+
+Le deploiement Blue/Green permet de deployer une nouvelle version de l'application sans interruption de service. Deux environnements identiques coexistent :
+
+- **Blue** : Version actuellement en production
+- **Green** : Nouvelle version a deployer (ou inverse)
+
+```
+[Client] --> [Nginx Reverse Proxy] --> [Blue]   (version active)
+                                   \-> [Green]  (version candidate)
+```
+
+### Architecture
+
+```
++------------------+     +------------------+     +------------------+
+|  GitHub Actions  | --> |      GHCR        | --> |  Runner Local    |
+|  (CI Pipeline)   |     | (Image Registry) |     | (Docker Host)    |
++------------------+     +------------------+     +------------------+
+                                                          |
+                                                          v
+                                              +------------------------+
+                                              |    Nginx Proxy (:80)   |
+                                              +------------------------+
+                                                    |           |
+                                              +----------+ +----------+
+                                              |   BLUE   | |  GREEN   |
+                                              | frontend | | frontend |
+                                              | backend  | | backend  |
+                                              +----------+ +----------+
+                                                    |           |
+                                              +------------------------+
+                                              |   PostgreSQL (partage) |
+                                              +------------------------+
+```
+
+### Role du reverse proxy (Nginx)
+
+Le reverse proxy Nginx :
+- Recoit tout le trafic sur `http://localhost` (port 80)
+- Route vers la version active (blue ou green) basee sur la variable `ACTIVE_COLOR`
+- Peut basculer instantanement entre les versions via `nginx -s reload`
+
+### Fichiers Docker Compose
+
+| Fichier | Role |
+|---------|------|
+| `docker-compose.base.yml` | Infrastructure partagee (PostgreSQL, Nginx) |
+| `docker-compose.blue.yml` | Services Blue (frontend-blue, backend-blue) |
+| `docker-compose.green.yml` | Services Green (frontend-green, backend-green) |
+
+### Deroulement d'un deploiement
+
+1. **Build + Push** : Les nouvelles images sont construites et poussees vers GHCR
+2. **Deploiement sur couleur inactive** : La nouvelle version est deployee sans toucher a la version active
+3. **Bascule du proxy** : Nginx est reconfigure pour router vers la nouvelle version
+4. **Rollback possible** : L'ancienne version reste disponible pour un retour arriere instantane
+
+### Conditions d'activation
+
+Le stage `deploy-blue-green` est execute **uniquement** sur la branche `main` apres un push.
+
+Les branches `feature/**` et `develop` declenchent le CI mais pas le deploiement blue/green.
+
+### Commandes manuelles
+
+```powershell
+# Deploiement blue/green
+.\scripts\deploy-blue-green.ps1 -ImageTag "sha" -ImageBackend "ghcr.io/..." -ImageFrontend "ghcr.io/..."
+
+# Rollback instantane
+.\scripts\rollback.ps1
+```
+
+### Fichier de couleur active
+
+Le fichier `.active_color` stocke la couleur active actuelle (`blue` ou `green`). Ce fichier est lu et mis a jour par les scripts de deploiement.
+
+---
+
 ## License
 
 This project is licensed under the MIT License.

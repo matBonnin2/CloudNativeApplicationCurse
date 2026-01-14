@@ -1,0 +1,49 @@
+# =============================================================================
+# Docker Compose - Instance BLUE (Blue/Green Deployment)
+# Contient : frontend-blue + backend-blue
+# =============================================================================
+
+services:
+  # =========================
+  # BACKEND BLUE
+  # =========================
+  backend-blue:
+    image: ${IMAGE_BACKEND:-ghcr.io/matbonnin2/cloudnativeapplicationcurse-backend}:${IMAGE_TAG:-latest}
+    container_name: backend-blue
+    environment:
+      - PORT=3000
+      - LOG_LEVEL=info
+      - DATABASE_URL=postgres://app:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/appdb
+      - INSTANCE_ID=blue
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # =========================
+  # FRONTEND BLUE
+  # =========================
+  frontend-blue:
+    image: ${IMAGE_FRONTEND:-ghcr.io/matbonnin2/cloudnativeapplicationcurse-frontend}:${IMAGE_TAG:-latest}
+    container_name: frontend-blue
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  app_network:
+    external: true
+    name: bluegreen_network
