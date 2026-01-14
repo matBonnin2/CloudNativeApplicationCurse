@@ -34,4 +34,5 @@ COPY --from=build /app/src ./src
 
 USER app
 
-EXPOSE 300
+EXPOSE 3000
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run seed && node src/index.js"]
