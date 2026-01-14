@@ -179,6 +179,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Create CI env file
+        shell: pwsh
+        run: |
+          "POSTGRES_USER=app" | Out-File -FilePath .env -Encoding ascii
+          "POSTGRES_PASSWORD=supersecret" | Out-File -FilePath .env -Encoding ascii -Append
+          "POSTGRES_DB=appdb" | Out-File -FilePath .env -Encoding ascii -Append
+
       - name: Start stack (CI)
         run: docker compose -f docker-compose.ci.yaml up -d
 
