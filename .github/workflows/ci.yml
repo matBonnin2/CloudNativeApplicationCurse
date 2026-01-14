@@ -6,9 +6,18 @@ on:
       - develop
   push:
     branches:
+      - main
+      - develop
       - feature/**
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  # =========================
+  # LINT (on garde)
+  # =========================
   lint:
     runs-on: self-hosted
     steps:
@@ -40,63 +49,101 @@ jobs:
           cd backend
           npm run lint
 
-  build:
+  # =========================
+  # DOCKER BUILD (TP 2.1)
+  # =========================
+  docker-build:
+    name: Docker build images
     runs-on: self-hosted
     needs: lint
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Docker version
+        run: docker version
 
-      - name: Install frontend dependencies
+      - name: Build backend Docker image
         run: |
-          cd frontend
-          npm ci
+          docker build \
+            -t backend:ci-build \
+            ./backend
 
-      - name: Build frontend
+      - name: Build frontend Docker image
         run: |
-          cd frontend
-          npm run build
+          docker build \
+            -t frontend:ci-build \
+            ./frontend
 
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
+  # =========================
+  # BUILD NODE (OBSOLÈTE)
+  # Le build est maintenant fait
+  # dans les Dockerfiles multi-stage
+  # =========================
+  # build:
+  #   runs-on: self-hosted
+  #   needs: lint
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #
+  #     - name: Install frontend dependencies
+  #       run: |
+  #         cd frontend
+  #         npm ci
+  #
+  #     - name: Build frontend
+  #       run: |
+  #         cd frontend
+  #         npm run build
+  #
+  #     - name: Install backend dependencies
+  #       run: |
+  #         cd backend
+  #         npm ci
+  #
+  #     - name: Build backend
+  #       run: |
+  #         cd backend
+  #         npm run build
 
-      - name: Build backend
-        run: |
-          cd backend
-          npm run build
+  # =========================
+  # TESTS NODE (OBSOLÈTE)
+  # Remplacés par des smoke tests
+  # Docker (TP 2.2)
+  # =========================
+  # tests:
+  #   runs-on: self-hosted
+  #   needs: build
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #
+  #     - name: Install backend dependencies
+  #       run: |
+  #         cd backend
+  #         npm ci
+  #
+  #     - name: Run backend tests
+  #       run: |
+  #         cd backend
+  #         npm test
 
-  tests:
-    runs-on: self-hosted
-    needs: build
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm ci
-
-      - name: Run backend tests
-        run: |
-          cd backend
-          npm test
-
+  # =========================
+  # SONARCLOUD (BONUS QUALITÉ)
+  # =========================
   sonarcloud:
     runs-on: self-hosted
-    needs: tests
+    needs: docker-build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -128,3 +175,80 @@ jobs:
             -Dsonar.host.url=https://sonarcloud.io ^
             -Dsonar.login=%SONAR_TOKEN% ^
             -Dsonar.qualitygate.wait=true
+
+  smoke-tests:
+    name: Docker smoke tests
+    runs-on: self-hosted
+    needs: docker-build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start stack (CI)
+        run: docker compose -f docker-compose.ci.yaml up -d
+
+      - name: Wait for API to be ready
+        shell: bash
+        run: |
+          set -e
+          echo "Waiting for API..."
+          for i in {1..30}; do
+            if curl -fsS http://localhost/api/health >/dev/null; then
+              echo "API is UP"
+              break
+            fi
+            sleep 1
+          done
+
+          # Tests obligatoires du TP
+          curl -fsS http://localhost/api/health
+          curl -fsS http://localhost/api/whoami
+
+      - name: Stop stack
+        if: always()
+        run: docker compose -f docker-compose.ci.yaml down -v
+
+  # =========================
+  # PUBLISH GHCR (TP 2.3)
+  # =========================
+  publish:
+    name: Publish images to GHCR
+    runs-on: self-hosted
+    needs: smoke-tests
+    if: github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Set image names
+        shell: pwsh
+        run: |
+          $repo = "${{ github.event.repository.name }}".ToLower()
+          "IMAGE_BACKEND=ghcr.io/${{ github.repository_owner }}/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_FRONTEND=ghcr.io/${{ github.repository_owner }}/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build and tag images
+        shell: pwsh
+        run: |
+          docker build -t "$env:IMAGE_BACKEND:${{ github.sha }}" ./backend
+          docker build -t "$env:IMAGE_FRONTEND:${{ github.sha }}" ./frontend
+          if ("${{ github.ref_name }}" -eq "main") {
+            docker tag "$env:IMAGE_BACKEND:${{ github.sha }}" "$env:IMAGE_BACKEND:latest"
+            docker tag "$env:IMAGE_FRONTEND:${{ github.sha }}" "$env:IMAGE_FRONTEND:latest"
+          }
+
+      - name: Push images
+        shell: pwsh
+        run: |
+          docker push "$env:IMAGE_BACKEND:${{ github.sha }}"
+          docker push "$env:IMAGE_FRONTEND:${{ github.sha }}"
+          if ("${{ github.ref_name }}" -eq "main") {
+            docker push "$env:IMAGE_BACKEND:latest"
+            docker push "$env:IMAGE_FRONTEND:latest"
+          }

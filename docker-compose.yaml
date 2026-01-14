@@ -1,0 +1,73 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+
+      # logs traefik (bloc 3.3)
+      - --log.level=INFO
+      - --accesslog=true
+      - --accesslog.format=json
+
+      # (option bloc 3.2 dashboard)
+      # - --api.dashboard=true
+      # - --api.insecure=false
+      # - --entrypoints.traefik.address=:8080
+    ports:
+      - "80:80"
+      # (option dashboard local) -> on évite de l’exposer publiquement
+      # - "127.0.0.1:8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - front_net
+      - back_net
+
+  frontend:
+    build:
+      context: ./frontend
+    networks:
+      - front_net
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.front.rule=PathPrefix(`/`)
+      - traefik.http.routers.front.entrypoints=web
+      - traefik.http.services.front.loadbalancer.server.port=80
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      - PORT=3000
+      - LOG_LEVEL=info
+      # - INSTANCE_ID=backend # optionnel, sinon HOSTNAME suffit
+      # connexion DB (adapter à ton app)
+      - DATABASE_URL=postgres://app:${POSTGRES_PASSWORD}@postgres:5432/appdb
+    depends_on:
+      - postgres
+    networks:
+      - back_net
+    labels:
+      - traefik.enable=true
+      # route /api -> backend
+      - traefik.http.routers.api.rule=PathPrefix(`/api`)
+      - traefik.http.routers.api.entrypoints=web
+      - traefik.http.services.api.loadbalancer.server.port=3000
+
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - back_net
+
+volumes:
+  pg_data:
+
+networks:
+  front_net:
+  back_net:
