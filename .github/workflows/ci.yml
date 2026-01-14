@@ -153,32 +153,32 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set image names
-        shell: pwsh
+        shell: bash
         run: |
-          $repo = "${{ github.event.repository.name }}".ToLower()
-          $owner = "${{ github.repository_owner }}".ToLower()
-          "IMAGE_BACKEND=ghcr.io/$owner/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "IMAGE_FRONTEND=ghcr.io/$owner/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_BACKEND=ghcr.io/$OWNER/$REPO-backend" >> $GITHUB_ENV
+          echo "IMAGE_FRONTEND=ghcr.io/$OWNER/$REPO-frontend" >> $GITHUB_ENV
 
       - name: Build and tag images
-        shell: pwsh
+        shell: bash
         run: |
-          docker build -t "$env:IMAGE_BACKEND`:${{ github.sha }}" ./backend
-          docker build -t "$env:IMAGE_FRONTEND`:${{ github.sha }}" ./frontend
-          if ("${{ github.ref_name }}" -eq "main") {
-            docker tag "$env:IMAGE_BACKEND`:${{ github.sha }}" "$env:IMAGE_BACKEND`:latest"
-            docker tag "$env:IMAGE_FRONTEND`:${{ github.sha }}" "$env:IMAGE_FRONTEND`:latest"
-          }
+          docker build -t "$IMAGE_BACKEND:${{ github.sha }}" ./backend
+          docker build -t "$IMAGE_FRONTEND:${{ github.sha }}" ./frontend
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            docker tag "$IMAGE_BACKEND:${{ github.sha }}" "$IMAGE_BACKEND:latest"
+            docker tag "$IMAGE_FRONTEND:${{ github.sha }}" "$IMAGE_FRONTEND:latest"
+          fi
 
       - name: Push images
-        shell: pwsh
+        shell: bash
         run: |
-          docker push "$env:IMAGE_BACKEND`:${{ github.sha }}"
-          docker push "$env:IMAGE_FRONTEND`:${{ github.sha }}"
-          if ("${{ github.ref_name }}" -eq "main") {
-            docker push "$env:IMAGE_BACKEND`:latest"
-            docker push "$env:IMAGE_FRONTEND`:latest"
-          }
+          docker push "$IMAGE_BACKEND:${{ github.sha }}"
+          docker push "$IMAGE_FRONTEND:${{ github.sha }}"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            docker push "$IMAGE_BACKEND:latest"
+            docker push "$IMAGE_FRONTEND:latest"
+          fi
 
   # =========================
   # DEPLOY (TP4 - CD)
@@ -202,40 +202,40 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set deployment variables
-        shell: pwsh
+        shell: bash
         run: |
-          $repo = "${{ github.event.repository.name }}".ToLower()
-          $owner = "${{ github.repository_owner }}".ToLower()
-          "IMAGE_BACKEND=ghcr.io/$owner/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "IMAGE_FRONTEND=ghcr.io/$owner/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "IMAGE_TAG=${{ github.sha }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_BACKEND=ghcr.io/$OWNER/$REPO-backend" >> $GITHUB_ENV
+          echo "IMAGE_FRONTEND=ghcr.io/$OWNER/$REPO-frontend" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${{ github.sha }}" >> $GITHUB_ENV
 
       - name: Stop existing containers
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "Arret des conteneurs existants..."
-          docker compose -f docker-compose.deploy.yaml down
-          Write-Host "Conteneurs arretes."
+          echo "Arret des conteneurs existants..."
+          docker compose -f docker-compose.deploy.yaml down || true
+          echo "Conteneurs arretes."
 
       - name: Pull latest images from GHCR
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "Telechargement des images depuis GHCR..."
-          docker pull "$env:IMAGE_BACKEND`:$env:IMAGE_TAG"
-          docker pull "$env:IMAGE_FRONTEND`:$env:IMAGE_TAG"
-          Write-Host "Images telechargees."
+          echo "Telechargement des images depuis GHCR..."
+          docker pull "$IMAGE_BACKEND:$IMAGE_TAG"
+          docker pull "$IMAGE_FRONTEND:$IMAGE_TAG"
+          echo "Images telechargees."
 
       - name: Start application
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "Demarrage de l'application..."
+          echo "Demarrage de l'application..."
           docker compose -f docker-compose.deploy.yaml up -d
-          Write-Host "Application demarree."
+          echo "Application demarree."
 
       - name: Verify deployment
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "Verification du deploiement..."
-          Start-Sleep -Seconds 10
+          echo "Verification du deploiement..."
+          sleep 10
           docker compose -f docker-compose.deploy.yaml ps
-          Write-Host "Deploiement termine avec succes!"
+          echo "Deploiement termine avec succes!"
