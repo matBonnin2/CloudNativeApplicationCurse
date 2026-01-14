@@ -6,7 +6,13 @@ on:
       - develop
   push:
     branches:
+      - main
+      - develop
       - feature/**
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   # =========================
@@ -202,3 +208,47 @@ jobs:
       - name: Stop stack
         if: always()
         run: docker compose -f docker-compose.ci.yaml down -v
+
+  # =========================
+  # PUBLISH GHCR (TP 2.3)
+  # =========================
+  publish:
+    name: Publish images to GHCR
+    runs-on: self-hosted
+    needs: smoke-tests
+    if: github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'main')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Set image names
+        shell: pwsh
+        run: |
+          $repo = "${{ github.event.repository.name }}".ToLower()
+          "IMAGE_BACKEND=ghcr.io/${{ github.repository_owner }}/$repo-backend" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IMAGE_FRONTEND=ghcr.io/${{ github.repository_owner }}/$repo-frontend" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build and tag images
+        shell: pwsh
+        run: |
+          docker build -t "$env:IMAGE_BACKEND:${{ github.sha }}" ./backend
+          docker build -t "$env:IMAGE_FRONTEND:${{ github.sha }}" ./frontend
+          if ("${{ github.ref_name }}" -eq "main") {
+            docker tag "$env:IMAGE_BACKEND:${{ github.sha }}" "$env:IMAGE_BACKEND:latest"
+            docker tag "$env:IMAGE_FRONTEND:${{ github.sha }}" "$env:IMAGE_FRONTEND:latest"
+          }
+
+      - name: Push images
+        shell: pwsh
+        run: |
+          docker push "$env:IMAGE_BACKEND:${{ github.sha }}"
+          docker push "$env:IMAGE_FRONTEND:${{ github.sha }}"
+          if ("${{ github.ref_name }}" -eq "main") {
+            docker push "$env:IMAGE_BACKEND:latest"
+            docker push "$env:IMAGE_FRONTEND:latest"
+          }
