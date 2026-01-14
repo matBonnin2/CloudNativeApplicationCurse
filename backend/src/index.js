@@ -77,20 +77,24 @@ app.use('/api/auth', authRoutes);
 ========================= */
 
 // Health check (CI + Traefik)
-app.get('/health', (req, res) => {
+const healthHandler = (req, res) => {
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
   });
-});
+};
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 // Scaling / load-balancing check
-app.get('/whoami', (req, res) => {
+const whoamiHandler = (req, res) => {
   res.json({
     hostname: process.env.HOSTNAME,
     instance: process.env.INSTANCE_ID || null,
   });
-});
+};
+app.get('/whoami', whoamiHandler);
+app.get('/api/whoami', whoamiHandler);
 
 /* =========================
    ERROR HANDLING
